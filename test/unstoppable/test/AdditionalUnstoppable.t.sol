@@ -3,9 +3,11 @@
 pragma solidity =0.8.25;
 
 import {Test, console} from "forge-std/Test.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {UnstoppableVault, Owned} from "../../src/unstoppable/UnstoppableVault.sol";
-import {UnstoppableMonitor} from "../../src/unstoppable/UnstoppableMonitor.sol";
+import {DamnValuableToken} from "../../../src/DamnValuableToken.sol";
+import {UnstoppableVault, Owned} from "../../../src/unstoppable/UnstoppableVault.sol";
+import {UnstoppableMonitor} from "../../../src/unstoppable/UnstoppableMonitor.sol";
+
+import {FlashBorrower} from "../mocks/FlashBorrower.sol";
 
 contract UnstoppableChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -17,22 +19,14 @@ contract UnstoppableChallenge is Test {
     DamnValuableToken public token;
     UnstoppableVault public vault;
     UnstoppableMonitor public monitorContract;
+    FlashBorrower public flashBorrower;
 
-    modifier checkSolvedByPlayer() {
-        vm.startPrank(player, player);
-        _;
-        vm.stopPrank();
-        _isSolved();
-    }
-
-    /**
-     * SETS UP CHALLENGE - DO NOT TOUCH
-     */
     function setUp() public {
         startHoax(deployer);
         // Deploy token and vault
         token = new DamnValuableToken();
         vault = new UnstoppableVault({_token: token, _owner: deployer, _feeRecipient: deployer});
+        flashBorrower = new FlashBorrower();
 
         // Deposit tokens to vault
         token.approve(address(vault), TOKENS_IN_VAULT);
@@ -90,23 +84,22 @@ contract UnstoppableChallenge is Test {
     /**
      * CODE YOUR SOLUTION HERE
      */
-    function test_unstoppable() public checkSolvedByPlayer {
-        // See NOTES.md for the solution
-        vm.warp(vault.end());
-    }
+    function test_flashLoanChargingFee() public {
+        // Check that grace period is not over
+        bool gracePeriod = block.timestamp < vault.end();
+        assertTrue(gracePeriod, "Grace period is over");
 
-    /**
-     * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH
-     */
-    function _isSolved() private {
-        // Flashloan check must fail
-        vm.prank(deployer);
-        vm.expectEmit();
-        emit UnstoppableMonitor.FlashLoanStatus(false);
-        monitorContract.checkFlashLoan(100e18);
+        // Check that Vault charges fee for max loan amount
+        vm.prank(player);
+        uint256 fee = vault.flashFee(address(token), vault.maxFlashLoan(address(token)));
+        bool feeCharged = fee > 0;
+        assertTrue(feeCharged, "Vault doesnt charge fee for max loan amount");
 
-        // And now the monitor paused the vault and transferred ownership to deployer
-        assertTrue(vault.paused(), "Vault is not paused");
-        assertEq(vault.owner(), deployer, "Vault did not change owner");
+        // Check that Vault charges fee
+        // Should fail when pulling funds from flashBorrower, since it pulls more than the flash loan amount
+        uint256 flashLoanAmount = vault.maxFlashLoan(address(token));
+        vm.prank(player);
+        vm.expectRevert("TRANSFER_FROM_FAILED");
+        vault.flashLoan(flashBorrower, address(token), flashLoanAmount, "");
     }
 }
