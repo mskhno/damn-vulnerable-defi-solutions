@@ -2,3 +2,4 @@
 
 - [x] - Unstoppable
 - [x] - Naive Receiver
+- [x] - Truster
