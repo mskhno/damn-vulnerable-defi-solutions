@@ -5,3 +5,4 @@
 - [x] - Truster
 - [x] - Side Entrance
 - [x] - The Rewarder
+- [ ] - Selfie
