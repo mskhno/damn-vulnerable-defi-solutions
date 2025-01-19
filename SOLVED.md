@@ -6,3 +6,4 @@
 - [x] - Side Entrance
 - [x] - The Rewarder
 - [x] - Selfie
+- [x] - Compromised

