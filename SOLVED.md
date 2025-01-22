@@ -7,3 +7,4 @@
 - [x] - The Rewarder
 - [x] - Selfie
 - [x] - Compromised
+- [x] - Puppet
