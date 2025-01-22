@@ -8,3 +8,4 @@
 - [x] - Selfie
 - [x] - Compromised
 - [x] - Puppet
+- [x] - Puppet V2
