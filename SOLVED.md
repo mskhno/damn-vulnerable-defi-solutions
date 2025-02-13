@@ -10,3 +10,5 @@
 - [x] - Puppet
 - [x] - Puppet V2
 - [x] - Free Rider
+- [ ] - Backdoor
+- [x] - Climber
