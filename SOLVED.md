@@ -12,3 +12,5 @@
 - [x] - Free Rider
 - [ ] - Backdoor
 - [x] - Climber
+- [ ] - Wallet Mining
+- [x] - Puppet V3
