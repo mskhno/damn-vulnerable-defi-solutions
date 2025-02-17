@@ -14,3 +14,4 @@
 - [x] - Climber
 - [ ] - Wallet Mining
 - [x] - Puppet V3
+- [x] - ABI Smuggling
