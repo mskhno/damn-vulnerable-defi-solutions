@@ -10,7 +10,7 @@
 - [x] - Puppet
 - [x] - Puppet V2
 - [x] - Free Rider
-- [ ] - Backdoor
+- [x] - Backdoor
 - [x] - Climber
 - [ ] - Wallet Mining
 - [x] - Puppet V3
