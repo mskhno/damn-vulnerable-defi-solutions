@@ -15,5 +15,5 @@
 - [ ] - Wallet Mining
 - [x] - Puppet V3
 - [x] - ABI Smuggling
-- [ ] - Shards
-- [x] - Curvy Puppet 
+- [x] - Shards
+- [x] - Curvy Puppet
