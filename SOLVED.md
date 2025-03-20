@@ -17,3 +17,4 @@
 - [x] - ABI Smuggling
 - [x] - Shards
 - [x] - Curvy Puppet
+- [x] - Withdrawal
